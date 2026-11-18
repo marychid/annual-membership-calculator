@@ -1,0 +1,249 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Annual Membership Calculator</title>
+<style>
+* { box-sizing: border-box; }
+body { margin: 0; background: #271811; color: #fff4e4; font: 1rem/1.5 system-ui, sans-serif; }
+main { width: min(100% - 2rem, 45rem); margin: clamp(2rem, 8vw, 5rem) auto; }
+header p { color: #ffad79; font-weight: 700; margin: 0; }
+h1 { font-size: clamp(2rem, 6vw, 3rem); line-height: 1.05; letter-spacing: -.04em; margin: .4rem 0 .75rem; }
+header { margin-bottom: 1.5rem; }
+header div, .hint { color: #ead0b5; }
+form, section { background: #3d271e; border: 1px solid #935544; border-radius: 1rem; padding: clamp(1rem, 4vw, 1.75rem); }
+.fields { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+label { display: block; font-weight: 650; margin-bottom: .35rem; }
+input, select, button { font: inherit; border-radius: .5rem; min-height: 3rem; }
+input::placeholder { color: #d8b79c; opacity: 1; }
+input, select { width: 100%; background: #2d1b14; color: inherit; border: 1px solid #b78668; padding: .6rem .75rem; }
+:focus-visible { outline: 3px solid #ffd995; outline-offset: 3px; }
+.hint { margin: .85rem 0 1rem; font-size: .9rem; }
+.actions { display: flex; gap: .75rem; flex-wrap: wrap; }
+button { background: #f5a261; color: #28170f; border: 1px solid transparent; font-weight: 750; padding: .5rem 1.1rem; cursor: pointer; }
+button[type=reset] { color: inherit; background: transparent; border-color: #b78668; }
+section { margin-top: 1rem; background: #492820; border-color: #a15d4d; }
+h2 { font-size: 1rem; margin: 0; }
+#charge { font-size: clamp(2rem, 8vw, 3.25rem); line-height: 1.2; color: #ffd995; font-weight: 800; margin: .2rem 0; }
+fieldset { border: 0; margin: 0; padding: 0; min-width: 0; }
+legend { font-weight: 750; margin-bottom: .65rem; }
+.member, .extras { border-top: 1px solid #805143; margin-top: 1rem; padding-top: 1rem; }
+.check { display: flex; gap: .6rem; align-items: center; }
+.check input { width: 1.2rem; min-height: 0; height: 1.2rem; accent-color: #ffd995; }
+.secondary-button { color: inherit; background: transparent; border-color: #b78668; }
+.family-row { display: grid; grid-template-columns: 1fr auto; align-items: end; gap: .75rem; margin-bottom: .75rem; }
+#rate-hint { margin-bottom: 0; }
+#savings { margin: 0 0 1rem; color: #ffd995; }
+#breakdown article { border-top: 1px solid #805143; padding: .75rem 0; }
+#breakdown h3, #breakdown p { margin: 0 0 .3rem; }
+#breakdown p { color: #ead0b5; font-size: .9rem; }
+@media (max-width: 32rem) { .fields { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<main>
+<header>
+<p>Black Friday</p>
+<h1>Annual Membership Calculator</h1>
+<div>Compare the Black Friday deal with the 10% off rate and this calculator will tell you which is a better deal at bottom!</div>
+</header>
+<form id="calculator">
+  <fieldset>
+  <legend>Individual/Primary Membership</legend>
+  <div class="fields">
+    <div>
+      <label for="location">Gym location</label>
+      <select id="location" required>
+        <option value="">Select a location</option>
+        <option value="114900">SLC/SOMA · $1,149</option>
+        <option value="105900">Ogden · $1,059</option>
+      </select>
+    </div>
+    <div>
+      <label for="monthly">Monthly Rate</label>
+      <input id="monthly" inputmode="decimal" autocomplete="off" placeholder="e.g. 100.00" aria-describedby="rate-hint">
+    </div>
+  </div>
+  </fieldset>
+  <p class="hint" id="rate-hint">Leave a legacy rate blank to use the promotional price for that membership.</p>
+
+  <div class="member">
+    <label class="check"><input id="include-secondary" type="checkbox" aria-controls="secondary-fields"> Include a secondary · $990 annually</label>
+    <fieldset id="secondary-fields" hidden disabled>
+      <label for="secondary-rate">Secondary Monthly Rate ($)</label>
+      <input id="secondary-rate" inputmode="decimal" autocomplete="off" aria-describedby="rate-hint">
+    </fieldset>
+  </div>
+  <div class="extras">
+    <h2>Family add-ons · $350 each annually</h2>
+    <div id="family-list"></div>
+    <button class="secondary-button" type="button" id="add-family">Add family member</button>
+  </div>
+  <p class="hint">Enter each eligible person’s legacy rate for one month.</p>
+  <div class="actions">
+    <button type="submit">Compare prices</button>
+    <button type="reset">Clear</button>
+  </div>
+</form>
+<div role="status" aria-atomic="true">
+<section id="result" hidden>
+  <h2>Total annual price to charge</h2>
+  <p id="charge"></p>
+  <p id="savings"></p>
+  <div id="breakdown"></div>
+</section>
+</div>
+</main>
+<script>
+const byId = (id) => document.getElementById(id);
+const form = byId('calculator');
+const locationField = byId('location');
+const monthlyField = byId('monthly');
+const result = byId('result');
+const secondaryToggle = byId('include-secondary');
+const secondaryFields = byId('secondary-fields');
+const familyList = byId('family-list');
+const addFamilyButton = byId('add-family');
+let nextFamilyId = 0;
+const currency = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' });
+const money = (cents) => currency.format(cents / 100);
+
+function parseMonthlyCents(value) {
+  const match = value.trim().match(/^\$?(\d{1,9}|\d{1,3}(?:,\d{3}){1,2})(?:\.(\d{1,2}))?$/);
+  if (!match) return null;
+  const dollars = Number(match[1].replaceAll(',', ''));
+  const cents = Number((match[2] ?? '').padEnd(2, '0'));
+  return dollars * 100 + cents;
+}
+
+function comparePrices(monthlyCents, promoCents) {
+  // Annualize and apply the discount, then round once to the nearest cent.
+  const legacyCents = monthlyCents === null ? null : Math.round(monthlyCents * 108 / 10);
+  if (legacyCents === null || promoCents < legacyCents) {
+    return { legacyCents, chargeCents: promoCents, offer: 'Black Friday promotion' };
+  }
+  const offer = legacyCents === promoCents ? 'Both offers cost the same' : '10% legacy discount';
+  return { legacyCents, chargeCents: legacyCents, offer };
+}
+
+function syncSecondary() {
+  secondaryFields.hidden = !secondaryToggle.checked;
+  secondaryFields.disabled = !secondaryToggle.checked;
+}
+
+function numberFamilyRows() {
+  Array.from(familyList.children).forEach((row, index) => {
+    const name = '#' + (index + 1) + ' Family Add-On';
+    row.querySelector('label').textContent = name + ' Monthly Rate ($)';
+    row.querySelector('button').setAttribute('aria-label', 'Remove ' + name.toLowerCase());
+  });
+}
+
+addFamilyButton.addEventListener('click', () => {
+  const row = document.createElement('div');
+  row.className = 'family-row';
+
+  const field = document.createElement('div');
+  const label = document.createElement('label');
+  const input = document.createElement('input');
+  input.id = 'family-rate-' + (++nextFamilyId);
+  input.inputMode = 'decimal';
+  input.autocomplete = 'off';
+  input.setAttribute('aria-describedby', 'rate-hint');
+  label.htmlFor = input.id;
+  field.append(label, input);
+
+  const remove = document.createElement('button');
+  remove.type = 'button';
+  remove.className = 'secondary-button';
+  remove.textContent = 'Remove';
+  remove.addEventListener('click', () => {
+    const nextInput = row.nextElementSibling?.querySelector('input');
+    row.remove();
+    numberFamilyRows();
+    result.hidden = true;
+    (nextInput ?? addFamilyButton).focus();
+  });
+  row.append(field, remove);
+  familyList.append(row);
+  numberFamilyRows();
+  result.hidden = true;
+  input.focus();
+});
+
+form.addEventListener('input', (event) => {
+  if (event.target.matches('input')) event.target.setCustomValidity('');
+  result.hidden = true;
+});
+form.addEventListener('change', () => {
+  syncSecondary();
+  result.hidden = true;
+});
+form.addEventListener('reset', () => {
+  familyList.replaceChildren();
+  for (const input of form.querySelectorAll('input')) input.setCustomValidity('');
+  result.hidden = true;
+  // Native form values reset after the reset event.
+  queueMicrotask(syncSecondary);
+});
+
+function renderMember(name, promoCents, comparison) {
+  const { legacyCents, chargeCents, offer } = comparison;
+  const article = document.createElement('article');
+  const title = document.createElement('h3');
+  title.textContent = name + ' · ' + money(chargeCents);
+  const decision = document.createElement('p');
+  decision.textContent = offer;
+  if (legacyCents !== null) {
+    const savings = Math.abs(legacyCents - promoCents);
+    decision.textContent += ' · Saves ' + money(savings) + ' per year';
+  }
+  const prices = document.createElement('p');
+  prices.textContent = 'Promotion ' + money(promoCents) + ' · Legacy with 10% off ' +
+    (legacyCents === null ? '—' : money(legacyCents));
+  article.append(title, decision, prices);
+  return article;
+}
+
+form.addEventListener('submit', (event) => {
+  event.preventDefault();
+  result.hidden = true;
+
+  const members = [
+    { name: 'Individual/Primary Membership', field: monthlyField, promoCents: Number(locationField.value) }
+  ];
+  if (secondaryToggle.checked) {
+    members.push({ name: 'Secondary', field: byId('secondary-rate'), promoCents: 99000 });
+  }
+  Array.from(familyList.querySelectorAll('input')).forEach((field, index) => {
+    members.push({ name: '#' + (index + 1) + ' Family Add-On', field, promoCents: 35000 });
+  });
+
+  let total = 0;
+  let promoTotal = 0;
+  const breakdown = document.createDocumentFragment();
+  for (const { name, field, promoCents } of members) {
+    const value = field.value.trim();
+    const monthlyCents = value === '' ? null : parseMonthlyCents(value);
+    if (value !== '' && (monthlyCents === null || monthlyCents <= 0)) {
+      field.setCustomValidity('Enter a monthly rate greater than $0 with up to two decimal places, or leave it blank.');
+      field.reportValidity();
+      return;
+    }
+
+    const comparison = comparePrices(monthlyCents, promoCents);
+    total += comparison.chargeCents;
+    promoTotal += promoCents;
+    breakdown.append(renderMember(name, promoCents, comparison));
+  }
+
+  byId('charge').textContent = money(total);
+  byId('savings').textContent = 'Total savings vs. Black Friday pricing for everyone: ' +
+    money(promoTotal - total);
+  byId('breakdown').replaceChildren(breakdown);
+  result.hidden = false;
+});
+</script>
+</body>
+</html>
